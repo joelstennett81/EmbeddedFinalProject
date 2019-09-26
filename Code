@@ -1,0 +1,420 @@
+#include <SoftwareSerial.h>
+
+#define SOFTSERIAL_RX_PIN  2
+#define SOFTSERIAL_TX_PIN  3
+
+// TONES for Music Play
+#define c   3822  // 261 Hz
+#define d   3424  // 294 Hz
+#define e   3033  // 329 Hz
+#define f   2864  // 349 Hz
+#define g   2551  // 392 Hz
+#define a   2272  // 440 Hz
+#define b   2024  // 493 Hz
+#define C   1915  // 523 Hz
+#define D   1700
+#define E   1519
+#define F   1432
+#define G   1275
+#define A   1136
+#define B   1014
+#define C   956
+
+#define rest  0 // Represents a rest (no music)
+int outPin = 9;  // PWM Output pin 9
+int userCommand = 0;  //used for switch case later
+
+SoftwareSerial softSerial(SOFTSERIAL_RX_PIN,SOFTSERIAL_TX_PIN);
+
+const char *voiceBuffer[] = { "Turn on the light", "Turn off the light",
+                              "Play music", "Pause", "Next", "Previous", "Up",
+                              "Down", "Turn on the TV", "Turn off the TV",
+                              "Increase temperature", "Decrease temperature",
+                              "What's the time", "Open the door",
+                              "Close the door", "Left", "Right", "Stop",
+                              "Start", "Mode 1", "Mode 2", "Go", };
+
+void setup()
+{
+    pinMode(outPin, OUTPUT);
+    Serial.begin(9600);
+    softSerial.begin(9600);
+    softSerial.listen();
+    attachInterrupt(digitalPinToInterrupt(2), interrupt_function, CHANGE); // Sets up RX Pin as interrupt
+}
+
+// SONG MELODY
+// the song[] is an array of notes
+int song[] = { E, D, E, D, E, b, D, c, a, c, e, a, b, e, g, b, C, e, E, D, E, D,
+E,
+               b, D, C, a, c, e, a, b, e,C, b, a, E, D, E, D, E, b, D, C, a, c,
+                e,
+                a, b, e, C, b, a, b, C, D, E, g, F, E, D, f, E, D, C, e, D,
+                C,
+                b, e, E, e, E, D, E, D, E, D, E, D, E, D, E, D, E, b, D, C,
+                a,
+                c, e, a, b, e, g, b, C, e, E, D, E, D, E, b, D, C, a, c, e,
+                a,
+                b, e, C, b, a  };  // Fur Elise
+int songTwo[] = { f, g, f, a, c, a, c, e, f, g, f, c, a, f, c, a, b, a, c, e,f, a, c, e, f, a, c, e, f, a, b, b, a, e, f, c, g, g, b, e, f, a, c, b, d, e };
+int song1[] = { E, D, E, D, E, b, D, C, a, c, e, a, b, e, g, b, C, e, E, D, E,
+D,
+                E, b, D, C, a, c, e, a, b, e, C, b, a, E, D, E, D, E, b, D,
+                C,
+                a, c, e, a, b, e, g, b, C, e, E, D, E, D, E, b, D, C, a, c,
+                e,
+                a, b, e, C, b, a, b, C, D, E, g, F, E, D, f, E, D, C, e, D,
+                C,
+                b, e, E, e, E, D, E, D, E, D, E, D, E, D, E, D, E, b, D, C,
+                a,
+                c, e, a, b, e, g, b, C, e, E, D, E, D, E, b, D, C, a, c, e,
+                a,
+                b, e, C, b, a };  // SONG BEATS
+// beats[] is the length of each note, the higher the beat number, the longer the note
+
+int beats[] = { 32, 32, 32, 32, 48, 32, 32, 32, 64, 32, 32, 32, 64, 32, 32, 32,
+                64, 32, 32, 32, 32, 48, 32, 32, 32, 64, 32, 32, 32, 64, 32, 32, 32, 32, 32, 32, 48, 32, 32, 32, 64, 32, 32, 32, 32, 32, 48, 32, 32, 32, 64, 32, 32, 32, 64, 32, 32, 32, 32, 32, 32, 32, 48, 32, 32, 32, 64, 32, 32, 32, 64, 32, 32, 32, 32, 32, 32, 32, 48, 32, 32, 32, 64, 32, 32, 32, 64, 32, 32, 32, 32, 32, 32, 32, 48, 32, 32, 32, 64, 32, 32, 32, 64, 32, 32, 32, 32, 32, 32, 32, 48, 32, 32, 32 };
+
+int beats2[] =
+        { 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32 };
+
+int speakerPin = 9;
+
+int MAX_COUNT = (sizeof(song) / 2); // Melody Length, for looping
+int MAX_COUNT_2 = (sizeof(songTwo) / 2);
+long tempo = 10000;
+int pause = 1000; // Pause between notes
+int rest_count = 100; // Loop variable, used to control how long a rest between notes can be
+
+int note = 0;
+int beat = 0;
+long duration = 0;
+
+int songCount = 0; // Counter for which song to play
+// if song count is 0, play fur elise, if song count is 1, play other
+// Used for while loop to keep running
+int isPlayingSong1 = 1;
+int isPlayingSong2 = 0;
+int previousSong = 0; // Counter for when program is paused, then it replays old song
+
+int wasStopped = 0; // Keeps track of whether song was paused or not
+int FLAG = 11;
+int isPaused = 0;
+int i = 0;
+int j = 0;
+
+// Play song
+void playNote()
+{
+    long timeElapsed = 0;
+    if (note > 0)   // Checks to make sure that it isn't a rest note
+    {
+        while (timeElapsed < duration) // Pulses pin high and low to create note
+        {
+            digitalWrite(outPin, HIGH);
+            delayMicroseconds(note / 2);
+
+            digitalWrite(outPin, LOW);
+            delayMicroseconds(note / 2);
+
+            // Keep track of how much time has elapsed from delaying
+            timeElapsed += note;
+        }
+    }
+    else  // Rest
+    {
+        for (int i = 0; i < rest_count; i++)
+        {
+            delayMicroseconds(duration);
+        }
+    }
+}   // end of playNote()
+
+void interrupt_function()
+{ // This function is called everytime the speech recognizer recognizes a command from user
+    userCommand = softSerial.read();  // reads command from buffer line
+    switch (userCommand)
+    {
+    case 3: // Play Music
+    {
+        Serial.println("interrupt function play music\r\n");
+        isPaused = 0;
+        FLAG = 11;   // Sets Play Music is High
+        break;
+    }   // end of case 3
+    case 5: // Next function
+    {
+        Serial.println("interrupt function next\r\n");
+        FLAG = 12;   // Next Flag
+        if (isPlayingSong1 == 1)
+        {
+            isPlayingSong1 = 0;
+            isPlayingSong2 = 1;
+        }
+        else if (isPlayingSong2 == 1)
+        {
+            isPlayingSong2 = 0;
+            isPlayingSong1 = 1;
+        }
+        break;
+    }   // end of case 5
+    case 18:  // Stop Function
+    {
+        Serial.println("interrupt function stop\r\n");
+        FLAG = 13; //  Stop flag is high
+        wasStopped = 1;
+        isPaused = 1;
+        break;
+    }   // end of case 18
+    }   // end of switch
+}   // end of interrupt_function()
+
+void loop()
+{
+    // Looks at FLAG, and determines what to do.
+    switch (FLAG)
+    {
+    case 11:   // Play Music
+    {
+        if (isPlayingSong1 == 1)
+        {
+          Serial.println("isPlayingSong1 = true");
+            songCount = 0;  // First song, my counting is a bit weird
+        }
+        else if (isPlayingSong2 == 1)
+        {
+          Serial.println("isPlayingSong2 = true");
+            songCount = 1;  // second song
+        }
+        else
+        {
+          Serial.println("IsPaused = true");
+            isPaused = 1; // boolean type variable for whether song is paused or not
+        }
+        if (wasStopped == 1)  // If it was paused
+        {
+            songCount = previousSong;
+        }
+        if (isPaused == 1)
+        {
+            songCount = 2;
+        }
+        Serial.println("loop function play music ");
+        switch (songCount)
+        // Chooses to play either Fur elise or star wars
+        {
+        case 0:
+        { // Fur Elise
+            Serial.println("loop function play music case 0");
+            while (isPlayingSong1 == 1)
+            {
+                Serial.println("loop function play song1");
+                // Counter for pulling from song[] and beats[]
+                for (i = 0; i < MAX_COUNT; i++)
+                {
+                    note = song[i];
+                    beat = beats[i];
+                    duration = beat * tempo;  // Sets up timing
+                    playNote();
+                    delayMicroseconds(pause);
+                    if (FLAG == 12) // If interrupt function is called for next
+                    {
+                        Serial.println(
+                                "loop interrupted with FLAG = 12. In loop function case 1, case 0");
+                        isPlayingSong1 == 0;
+                        isPlayingSong2 == 1;
+                        isPaused = 0;
+                        //songCount = 1;
+                        break;
+                    } // end of if
+                    else if (FLAG == 13) // if interrupt function is called for stop
+                    {
+                        previousSong = 0;
+                        Serial.println(
+                                "loop interrupted with FLAG = 13. In loop function case 1, case 0");
+                        isPlayingSong1 = 0;
+                        isPlayingSong2 = 0;
+                        isPaused = 1;
+                        songCount = 2;
+                        break;  // break else if
+                    } // end of else if
+                } // end of for loop
+            } // end of while
+            break;  // end of case 0
+        } // end of case 0
+
+        case 1:
+        { // Play Star Wars
+            Serial.println("loop function play music case 1");
+            while (isPlayingSong2 == 1)
+            {
+                Serial.println("loop function play song2");
+                // Counter for pulling from song[] and beats[]
+                for (j = 0; j < MAX_COUNT_2; j++)
+                {
+                    note = songTwo[j];
+                    beat = beats2[j];
+                    duration = beat * tempo;  // Sets up timing
+                    playNote();
+                    delayMicroseconds(pause);
+                    if (FLAG == 12) // If interrupt function is called for next
+                    {
+                        Serial.println(
+                                "loop interrupted with FLAG = 12. In loop function case 1, case 1");
+                        isPlayingSong2 = 0;
+                        isPlayingSong1 = 1; // Sets next song to play
+                        isPaused = 0;
+                        break;
+                    } // end of if
+                    else if (FLAG == 13) // if interrupt function is called for stop
+                    {
+                        previousSong = 1; // Used to keep track of which song to return two after pause
+                        Serial.println(
+                                "loop interrupted with FLAG = 13. In loop function case 1, 1");
+                        isPlayingSong2 = 0;
+                        isPlayingSong1 = 0;
+                        isPaused = 1;
+                        songCount = 2;  // Goes to the do nothing function
+                        break;
+                    } // end of else if
+                }   // end of for loop
+            }   // end of while loop
+            break;
+        } // end of case 1
+        
+        case 2: // pause song
+        {
+            Serial.println("case 2 pause song in loop function play music");
+            if (FLAG == 12)
+            {
+                Serial.println("FLAG == 12");
+                if (previousSong == 0)
+                {
+                    isPlayingSong1 = 0;
+                    isPlayingSong2 = 1;
+                    songCount == 1;
+                    previousSong = 1;
+                    isPaused = 0;
+                    break;
+                }
+                else
+                {
+                    Serial.println("elsing");
+                    isPlayingSong2 = 0;
+                    isPlayingSong1 = 1;
+                    songCount = 0;
+                    previousSong = 0;
+                    isPaused = 0;
+                    break;
+                }
+            }
+            else if (FLAG == 11)
+            {
+                Serial.println("In pause function!");
+                if (previousSong == 0)
+                {
+                  isPlayingSong1 = 1;
+                isPlayingSong2 = 0;
+                isPaused = 0;
+                songCount = 0;
+                break;
+                }
+                else
+                {
+                  isPlayingSong2 = 1;
+                isPlayingSong1 = 0;
+                isPaused = 0;
+                songCount = 1;
+                break;
+                }
+                
+            }
+            else
+            {
+                Serial.println("pause song elsing");
+            }
+            break;
+        } // end of case pause song
+        default:
+        {
+            Serial.println("defaulting");
+            if (isPlayingSong1 == 1)
+            {
+                songCount = 0;
+                break;
+            }
+            else if (isPlayingSong2 == 1)
+            {
+                songCount = 1;
+                break;
+            }
+            break;
+        }
+
+            break;  // break from case 1 flag
+        }   // end of switch songCount
+        break;
+    } // end of case 11 FLAG
+    case 12:
+        // Next Command
+    {
+        Serial.println("loop function case 12. next command \r\n");
+        switch (songCount)
+        {
+        case 0:
+        {
+            Serial.println("songCount case 0. make songCount 1\r\n");
+            songCount = 1;
+            isPlayingSong1 = 0;
+            isPlayingSong2 = 1;
+            previousSong = 1;
+            FLAG = 11;
+            break;
+        }
+        case 1:
+        {
+            Serial.println("songCount case 1 make songCount0\r\n");
+            songCount = 0;
+            isPlayingSong1 = 1;
+            isPlayingSong2 = 0;
+            previousSong = 0;
+            FLAG = 11;
+            break;
+        }
+        default:
+        {
+            Serial.println("SongCount case default");
+            isPlayingSong1 = 1;
+            isPlayingSong2 = 0;
+            previousSong = 0;
+            isPaused = 0;
+            FLAG = 11;
+            break;
+        }
+        } // end of switch song count
+        FLAG = 11; // Sends it back to play music
+        break;
+    } // end of case 12
+
+    case 13:
+        // Stop FLAG. Arduino doesn't hear pause
+    {
+        Serial.println("entering case 3 stop flag");
+        while (FLAG != 11)
+        {
+            Serial.println("loop function case 3. stop command\r\n"); 
+            // I ran into errors when i had nothing in this while loop
+        }
+        break;
+        isPaused = 0;
+        songCount = previousSong;
+    } // end of case 3
+
+    default:
+    {
+        Serial.println("loop function default");
+        delay(100);
+        break;
+    } // end of default
+    } // end of switch flag
+} //end of loop
